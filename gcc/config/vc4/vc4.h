@@ -103,12 +103,6 @@
    is GET_MODE_SIZE(DImode).  */
 #define MAX_FIXED_MODE_SIZE 32
 
-/* Make strings word-aligned so strcpy from constants will be faster.  */
-#define CONSTANT_ALIGNMENT(EXP, ALIGN) \
-  ((TREE_CODE (EXP) == STRING_CST \
-    && (ALIGN) < FASTEST_ALIGNMENT) \
-   ? FASTEST_ALIGNMENT : (ALIGN))
-
 /* Make arrays of chars word-aligned for the same reasons.  */
 #define DATA_ALIGNMENT(TYPE, ALIGN) \
   (TREE_CODE (TYPE) == ARRAY_TYPE \
@@ -221,26 +215,7 @@ enum {
    1,  1,  1								\
 }
 
-/* Return number of consecutive hard regs needed starting at reg REGNO
-   to hold something of mode MODE.
-   This is ordinarily the length in words of a value of mode MODE
-   but can be less for certain modes in special long registers.
-
-   On the VC4 regs are UNITS_PER_WORD bits wide. */
-#define HARD_REGNO_NREGS(REGNO, MODE)  \
-   (((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD))
-
-/* Value is 1 if hard register REGNO can hold a value of machine-mode MODE. */
-#define HARD_REGNO_MODE_OK(REGNO, MODE) \
-  vc4_hard_regno_mode_ok (REGNO, MODE)
-
 #define PRINT_OPERAND_PUNCT_VALID_P(CODE) ((CODE) == '?')
-
-/* Value is 1 if it is a good idea to tie two pseudo registers
-   when one has mode MODE1 and one has mode MODE2.
-   If HARD_REGNO_MODE_OK could produce different values for MODE1 and MODE2,
-   for any hard reg, then this must be 0 for correct output.  */
-#define MODES_TIEABLE_P(MODE1, MODE2) 1
 
 /* Definitions for register eliminations.
 
@@ -387,7 +362,7 @@ extern const enum reg_class vc4_regno_reg_class[FIRST_PSEUDO_REGISTER];
    If FRAME_GROWS_DOWNWARD, this is the offset to the END of the
    first local allocated.  Otherwise, it is the offset to the BEGINNING
    of the first local allocated.  */
-#define STARTING_FRAME_OFFSET 0
+//#define STARTING_FRAME_OFFSET 0
 
 /* If defined, the maximum amount of space required for outgoing arguments
    will be computed and placed into the variable
@@ -586,7 +561,7 @@ extern const enum reg_class vc4_regno_reg_class[FIRST_PSEUDO_REGISTER];
 #define SHIFT_COUNT_TRUNCATED 1
 
 /* All integers have the same format so truncation is easy.  */
-#define TRULY_NOOP_TRUNCATION(OUTPREC,INPREC)  1
+//#define TRULY_NOOP_TRUNCATION(OUTPREC,INPREC)  1
 
 /* Define this if addresses of constant functions
    shouldn't be put through pseudo regs where they can be cse'd.

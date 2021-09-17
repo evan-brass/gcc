@@ -631,6 +631,30 @@ vc4_initial_elimination_offset (int from, int to)
     gcc_unreachable ();
 }
 
+/* Implement TARGET_HARD_REGNO_NREGS.
+   Return number of consecutive hard regs needed starting at reg REGNO
+   to hold something of mode MODE.
+   This is ordinarily the length in words of a value of mode MODE
+   but can be less for certain modes in special long registers.
+
+   On the VC4 regs are UNITS_PER_WORD bits wide. */
+static unsigned int
+vc4_hard_regno_nregs (unsigned regno, machine_mode mod)
+{
+	return (((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD));
+}
+
+/* Implement TARGET_MODES_TIEABLE_P.
+   Value is true if it is a good idea to tie two pseudo registers
+   when one has mode MODE1 and one has mode MODE2.
+   If HARD_REGNO_MODE_OK could produce different values for MODE1 and MODE2,
+   for any hard reg, then this must be 0 for correct output.  */
+static bool
+vc4_modes_tieable_p (machine_mode _mode1, machine_mode _mode2)
+{
+	return true;
+}
+
 bool
 vc4_can_eliminate (const int from, const int to)
 {
@@ -1386,8 +1410,9 @@ static bool vc4_warn_func_return(tree decl)
     return lookup_attribute("naked", DECL_ATTRIBUTES(decl)) == NULL_TREE;
 }
 
-bool
-vc4_hard_regno_mode_ok (int regno, machine_mode mode)
+/* Value is true if hard register REGNO can hold a value of machine-mode MODE. */
+static bool
+vc4_hard_regno_mode_ok (unsigned regno, machine_mode mode)
 {
   if (GET_MODE_CLASS (mode) == MODE_CC)
     return regno == CC_REGNO;
@@ -1875,6 +1900,18 @@ vc4_valid_float_immediate (rtx x)
 
 #undef  TARGET_ASM_CAN_OUTPUT_MI_THUNK
 #define TARGET_ASM_CAN_OUTPUT_MI_THUNK default_can_output_mi_thunk_no_vcall
+
+#undef TARGET_CONSTANT_ALIGNMENT
+#define TARGET_CONSTANT_ALIGNMENT constant_alignment_word_strings
+
+#undef TARGET_HARD_REGNO_NREGS
+#define TARGET_HARD_REGNO_NREGS vc4_hard_regno_nregs
+
+#undef TARGET_HARD_REGNO_MODE_OK
+#define TARGET_HARD_REGNO_MODE_OK vc4_hard_regno_mode_ok
+
+#undef TARGET_MODES_TIEABLE_P
+#define TARGET_MODES_TIEABLE_P vc4_modes_tieable_p
 
 struct gcc_target targetm = TARGET_INITIALIZER;
 
