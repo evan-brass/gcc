@@ -20,8 +20,11 @@
  * <http://www.gnu.org/licenses/>.  
  */
 
+#define IN_TARGET_CODE 1
+
 #include "config.h"
 #include "system.h"
+#include "memmodel.h"
 #include "coretypes.h"
 #include "backend.h"
 #include "cfghooks.h"
@@ -60,13 +63,14 @@
 #include "except.h"
 #include "tm_p.h"
 #include "target.h"
+#include "hard-reg-set.h"
+#include "attribs.h"
 #include "sched-int.h"
 #include "common/common-target.h"
 #include "debug.h"
 #include "langhooks.h"
 #include "intl.h"
 #include "libfuncs.h"
-#include "params.h"
 #include "opts.h"
 #include "dumpfile.h"
 #include "gimple-expr.h"
@@ -159,13 +163,13 @@ static tree vc4_handle_naked_attribute(tree *, tree, tree, int, bool *);
  */
 
 static const struct attribute_spec vc4_attribute_table[] = {
+
     /*
-     * { name, min_len, max_len, decl_req, type_req, fn_type_req, handler,
-     * affects_type_identity } 
+     * { name, min_len, max_len, decl_req, type_req, fn_type_req, affects_type_identity, handler, exclusions
+     *  } 
      */
-    {"naked", 0, 0, true, false, false, vc4_handle_naked_attribute,
-     false},
-    {NULL, 0, 0, false, false, false, NULL, false}
+    {"naked", 0, 0, true, false, false, false, vc4_handle_naked_attribute, NULL},
+    {NULL, 0, 0, false, false, false, false, NULL, NULL}
 };
 
 
@@ -426,7 +430,7 @@ vc4_print_operand (FILE *stream, rtx x, int code)
       case 'd':
 	{
 	  gcc_assert (CONST_INT_P (x));
-	  asm_fprintf (stream, "%d", INTVAL (x) - 1);
+	  asm_fprintf (stream, "%wd", INTVAL (x) - 1);
 	}
 	break;
 
@@ -491,7 +495,7 @@ vc4_target_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
                   && REG_P(XEXP(left, 0))
                   && CONST_INT_P(XEXP(left, 1))
                   && REG_P(right)
-                  && (INTVAL(XEXP(left, 1)) == GET_MODE_SIZE(mode)))
+                  && (known_eq(INTVAL(XEXP(left, 1)), GET_MODE_SIZE(mode))))
         	*total = COSTS_N_INSNS(2);
               /* Test for ra[rb] where ra is a byte*.  */
               else if ((mode == QImode) && REG_P(left) && REG_P(right))
@@ -639,9 +643,9 @@ vc4_initial_elimination_offset (int from, int to)
 
    On the VC4 regs are UNITS_PER_WORD bits wide. */
 static unsigned int
-vc4_hard_regno_nregs (unsigned regno, machine_mode mod)
+vc4_hard_regno_nregs (unsigned regno, machine_mode mode)
 {
-	return (((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD));
+	return (((GET_MODE_SIZE (mode) + UNITS_PER_WORD - 1) / UNITS_PER_WORD));
 }
 
 /* Implement TARGET_MODES_TIEABLE_P.
@@ -673,7 +677,8 @@ num_arg_regs (machine_mode mode, const_tree type)
 {
   int size;
 
-  if (targetm.calls.must_pass_in_stack (mode, type))
+  // TODO: I don't know if the function arg is named or not.  Try both?  Look at old implementation for must_pass_in_stack to see what it did.
+  if (targetm.calls.must_pass_in_stack (function_arg_info(const_cast<tree>(type), mode, true)))
     return 0;
 
   if (type && mode == BLKmode)
@@ -687,9 +692,7 @@ num_arg_regs (machine_mode mode, const_tree type)
 /* Keep track of some information about varargs for the prolog.  */
 
 static void
-vc4_setup_incoming_varargs (cumulative_args_t args_so_far_v,
-                            machine_mode, tree, int *ptr_pretend_size,
-                            int second_time ATTRIBUTE_UNUSED)
+vc4_setup_incoming_varargs (cumulative_args_t args_so_far_v, const function_arg_info &arg, int *ptr_pretend_size, int no_rtl)
 {
   CUMULATIVE_ARGS *args_so_far = get_cumulative_args (args_so_far_v);
   if (*args_so_far < 6)
@@ -714,11 +717,11 @@ vc4_compute_frame (void)
     return offsets;
 
   offsets->need_frame_pointer = frame_pointer_needed;
-  offsets->outgoing_args_size = crtl->outgoing_args_size;
+  offsets->outgoing_args_size = (crtl->outgoing_args_size).to_constant();
   offsets->pretend_size = crtl->args.pretend_args_size;
 
   /* Padding needed for each element of the frame.  */
-  offsets->local_vars = get_frame_size ();
+  offsets->local_vars = get_frame_size ().to_constant();
 
   /* Align to the stack alignment.  */
   padding_locals = offsets->local_vars % stack_alignment;
@@ -748,8 +751,7 @@ vc4_compute_frame (void)
 }
 
 static void
-vc4_target_asm_function_prologue (FILE *file,
-				  HOST_WIDE_INT size ATTRIBUTE_UNUSED)
+vc4_target_asm_function_prologue (FILE *file)
 {
   struct machine_function *offsets = vc4_compute_frame ();
 
@@ -767,8 +769,7 @@ vc4_target_asm_function_prologue (FILE *file,
 }
 
 static void
-vc4_target_asm_function_epilogue (FILE *file ATTRIBUTE_UNUSED,
-				  HOST_WIDE_INT size ATTRIBUTE_UNUSED)
+vc4_target_asm_function_epilogue (FILE *file ATTRIBUTE_UNUSED)
 {
 }
 
@@ -1211,7 +1212,7 @@ vc4_trampoline_init (rtx m_tramp, tree fndecl, rtx static_chain)
 
   rtx a_tramp = XEXP (m_tramp, 0);
   emit_library_call (gen_rtx_SYMBOL_REF (Pmode, "__clear_cache"),
-                     LCT_NORMAL, VOIDmode, 2, a_tramp, Pmode,
+                     LCT_NORMAL, VOIDmode, a_tramp, Pmode,
                      plus_constant (Pmode, a_tramp, TRAMPOLINE_SIZE), Pmode);
 }
 
@@ -1258,35 +1259,33 @@ vc4_function_value (const_tree valtype, const_tree func ATTRIBUTE_UNUSED,
  */
 
 static rtx
-vc4_function_arg (cumulative_args_t cum, machine_mode mode,
-		  const_tree type, bool named)
+vc4_function_arg (cumulative_args_t cum, const function_arg_info &arg)
 {
   int arg_reg;
 
-  if (!named || mode == VOIDmode)
+  if (!arg.named || arg.mode == VOIDmode)
     return 0;
 
-  if (targetm.calls.must_pass_in_stack (mode, type))
+  if (targetm.calls.must_pass_in_stack (function_arg_info(const_cast<tree>(arg.type), arg.mode, true)))
     return 0;
 
   arg_reg = *get_cumulative_args (cum);
 
   if (arg_reg < NPARM_REGS)
-    return gen_rtx_REG (mode, arg_reg + FIRST_PARM_REG);
+    return gen_rtx_REG (arg.mode, arg_reg + FIRST_PARM_REG);
 
   return 0;
 }
 
 static void
-vc4_function_arg_advance (cumulative_args_t cum_v, machine_mode mode,
-			  const_tree type, bool named)
+vc4_function_arg_advance (cumulative_args_t cum_v, const function_arg_info &arg)
 {
   CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
 
-  if (!named)
+  if (!arg.named)
     return;
 
-  (*cum) += num_arg_regs (mode, type);
+  (*cum) += num_arg_regs (arg.mode, arg.type);
 }
 
 static unsigned int
@@ -1303,22 +1302,21 @@ vc4_function_arg_boundary (machine_mode /*mode*/, const_tree /*type*/)
    to the function.  */
 
 static int
-vc4_arg_partial_bytes (cumulative_args_t cum, machine_mode mode,
-                       tree type, bool named)
+vc4_arg_partial_bytes (cumulative_args_t cum, const function_arg_info &arg)
 {
   int reg = *get_cumulative_args (cum);
 
-  if (named == 0)
+  if (arg.named == 0)
     return 0;
 
-  if (targetm.calls.must_pass_in_stack (mode, type))
+  if (targetm.calls.must_pass_in_stack (function_arg_info(const_cast<tree>(arg.type), arg.mode, true)))
     return 0;
 
   if (reg >= NPARM_REGS)
     return 0;
 
   /* If the argument fits entirely in registers, return 0.  */
-  if (reg + num_arg_regs (mode, type) <= NPARM_REGS)
+  if (reg + num_arg_regs (arg.mode, arg.type) <= NPARM_REGS)
     return 0;
 
   /* The argument overflows the number of available argument registers.
