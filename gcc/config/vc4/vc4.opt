@@ -19,5 +19,5 @@
 ; <http://www.gnu.org/licenses/>.
 
 msingle-float
-Target Report RejectNegative Mask(SINGLE_FLOAT)
+Target RejectNegative Mask(SINGLE_FLOAT)
 Use the hardware-supported 32-bit format for both float and double types.
